@@ -51,6 +51,7 @@ def evaluate_gates(
     dsr_pvalue_max: float | None = None,
     max_correlation: float | None = None,
     max_pca_concentration: float = 0.5,
+    turnover: pd.Series | None = None,
 ) -> GateOutcome:
     """Run all three gates in order.
 
@@ -77,8 +78,13 @@ def evaluate_gates(
         )
 
     # Degenerate-strategy guard: catches all-zero positions (LLM bugs) and
-    # near-zero-variance returns that DSR accepts vacuously.
-    cleaned = strategy_returns.dropna()
+    # near-zero-variance returns that DSR accepts vacuously. Also coerces
+    # object-dtype returns (LLMs sometimes mix bools/floats) to float64 so
+    # scipy.stats.skew doesn't choke downstream.
+    try:
+        cleaned = pd.to_numeric(strategy_returns, errors="coerce").dropna().astype(float)
+    except Exception:
+        cleaned = pd.Series([], dtype=float)
     if len(cleaned) < 30 or cleaned.std() < 1e-10 or cleaned.abs().sum() < 1e-8:
         return GateOutcome(
             passes=False,
@@ -87,6 +93,24 @@ def evaluate_gates(
             dsr_result=None,
             max_correlation=None,
         )
+    strategy_returns = cleaned
+
+    # Zero/near-zero turnover catches buy-and-hold strategies disguised as
+    # "alpha". E.g. signal.clip(0.5, 1.0) on a boolean series → always 0.5,
+    # which earns SPY's Sharpe with no trading. That's beta, not edge.
+    # We need at least one round-trip per year (annual_turnover >= ~2).
+    if turnover is not None:
+        tn = float(turnover.dropna().abs().sum())
+        # turnover is per-bar position change; sum * annualization / n_bars = annual
+        annual_tn = tn * annualization / max(len(cleaned), 1)
+        if annual_tn < 1.0:
+            return GateOutcome(
+                passes=False,
+                rejection_reason=f"buy_and_hold_disguise (annual_turnover={annual_tn:.2f})",
+                critic_verdict=critic_verdict,
+                dsr_result=None,
+                max_correlation=None,
+            )
 
     n_trials = max(memory.n_trials(), 1)
     try:

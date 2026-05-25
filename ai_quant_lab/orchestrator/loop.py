@@ -196,6 +196,7 @@ def _run_iteration(
         memory=memory,
         accepted_returns=accepted_returns,
         annualization=config.annualization,
+        turnover=result.turnover,
     )
 
     returns_payload = ""
