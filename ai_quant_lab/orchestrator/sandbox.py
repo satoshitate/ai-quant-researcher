@@ -96,6 +96,12 @@ def run_strategy(
     elapsed = time.perf_counter() - start
 
     expected_type = type(price_data).__name__
+
+    # Tolerance: LLM-generated code frequently returns np.ndarray instead of
+    # pd.Series. If shape matches the input length, convert silently.
+    if isinstance(positions, np.ndarray) and positions.ndim == 1 and len(positions) == len(price_data):
+        positions = pd.Series(positions, index=price_data.index)
+
     if isinstance(price_data, pd.Series):
         if not isinstance(positions, pd.Series):
             raise SandboxError(

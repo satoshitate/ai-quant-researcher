@@ -45,8 +45,20 @@ Constraints (non-negotiable):
    Return a Series indexed by `price_data.index`, values in [-1, 1], representing
    the target position at the close of each bar (will be lagged by the engine).
 2. Imports allowed: numpy as np, pandas as pd, and
-   `from ai_quant_lab.features.library import momentum, rolling_zscore,
-   realized_volatility, range_pct, vwap_deviation, ewma`.
+   `from ai_quant_lab.features.library import ...`. EXACT SIGNATURES (do not
+   invent kwargs — only these args exist):
+
+      momentum(price_data: pd.Series, window: int = 21) -> pd.Series
+      rolling_zscore(price_data: pd.Series, window: int = 21) -> pd.Series
+      realized_volatility(price_data: pd.Series, window: int = 21) -> pd.Series
+      range_pct(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 21) -> pd.Series
+      parkinson_volatility(high: pd.Series, low: pd.Series, window: int = 21) -> pd.Series
+      garman_klass_volatility(open_price, high, low, close, window: int = 21) -> pd.Series
+      vwap_deviation(close: pd.Series, volume: pd.Series, window: int = 21) -> pd.Series
+      ewma(price_data: pd.Series, halflife: float) -> pd.Series
+
+   NO other kwargs exist. Do NOT pass `freq=`, `method=`, `min_periods=` to
+   these functions. If you need behavior outside this surface, use raw pandas.
 3. NEVER look at future bars. Compute features via .shift(1), .rolling(...),
    or .ewm(...). NEVER use .shift(-1) or center=True.
 4. ALWAYS clip the final signal to [-1, 1] with `.clip(-1, 1)`.
