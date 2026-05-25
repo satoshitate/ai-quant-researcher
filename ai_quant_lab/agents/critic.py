@@ -35,7 +35,7 @@ _GENERIC_FAILURE_MODES = """
 1. Implicit lookahead / forward-looking data.
 2. Survivorship or selection bias in the implied universe.
 3. Already-arbitraged factor exposure with no plausible reason it persists.
-4. Sensitivity to a single parameter that's been optimized over.
+4. EXPLICIT parameter optimization (the hypothesis itself states the parameter was picked by sweep, OR cites an unusually precise value like "lookback of 37" without justification). Standard round numbers (20, 21, 50, 100, 252) are NOT evidence of optimization.
 5. Reliance on transaction costs that wouldn't survive realistic frictions.
 6. Conflation of in-sample fit with out-of-sample edge.
 """.strip()
@@ -46,7 +46,7 @@ _MARKET_SPECIFIC_FAILURES: dict[str, str] = {
 1. Implicit lookahead / forward-looking data.
 2. Survivorship bias (universe defined by what exists today).
 3. Factor that was arbitraged out post-2003 (decimalization), post-2010 (ETF era), or post-2020.
-4. Sensitivity to a single parameter that's been optimized over.
+4. EXPLICIT parameter optimization (the hypothesis itself states the parameter was picked by sweep, OR cites an unusually precise value like "lookback of 37" without justification). Standard round numbers (20, 21, 50, 100, 252) are NOT evidence of optimization.
 5. Costs that ignore short-borrow fees, hard-to-borrow lists, locate failure.
 6. Performance driven by a handful of names (Tesla, NVDA, GME etc.).
 7. Edge that lives entirely inside earnings windows or option-expiry weeks.
@@ -87,21 +87,42 @@ _MARKET_SPECIFIC_FAILURES: dict[str, str] = {
 }
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are an adversarial reviewer of quantitative trading hypotheses.
+SYSTEM_PROMPT_TEMPLATE = """You are a pre-backtest structural reviewer of trading hypotheses.
 
-Your job is to KILL bad ideas before they waste compute. Assume the hypothesis
-is wrong. Look for the failure modes most relevant to this market:
+You are ONE of three gates. The other two (Deflated Sharpe, correlation) are
+empirical and catch most bad ideas. YOUR job is ONLY to catch ideas that are
+structurally broken before they waste backtest compute. Default to PASS.
+
+Structural failure modes you should look for:
 
 {failure_modes}
+
+DEFAULT VERDICT IS "pass". You should ONLY kill if you can:
+  (a) quote the exact clause from the hypothesis, AND
+  (b) explain why it triggers a specific numbered failure mode.
+
+What is NOT a valid kill reason:
+  ✗ "This edge is probably arbitraged" — that's what DSR decides empirically.
+  ✗ "Uses a specific number like 21 or 0.2" — round-ish numbers are fine.
+  ✗ "The market is efficient" — not your concern.
+  ✗ "Sharpe ratio might be low" — that's what backtest decides.
+  ✗ "Strategy depends on parameters" — every strategy does.
+
+What IS a valid kill reason:
+  ✓ Signal uses `close.shift(-1)` or any forward-looking computation.
+  ✓ Universe defined as "current S&P 500 members" with 10-year backtest.
+  ✓ Hypothesis explicitly says "we tried 50 lookbacks and picked the best."
+  ✓ Costs assumed zero or unrealistically low.
+  ✓ Strategy assumes data the system doesn't have (fundamentals, news, alt).
+
+If you are uncertain, PASS. The downstream gates are strict.
 
 Output JSON ONLY:
 {{
   "verdict": "pass" | "kill",
-  "reasoning": "<2-4 sentences explaining the strongest objection>",
-  "kill_reasons": [<list of the specific failure modes that apply>]
+  "reasoning": "<2-3 sentences. If kill, quote the exact clause from the hypothesis>",
+  "kill_reasons": [<list of failure mode numbers triggered. Empty if pass.>]
 }}
-
-Bias: when in doubt, kill. Generation is cheap. Validation is expensive.
 """
 
 
@@ -156,6 +177,7 @@ Argue against this hypothesis. Output JSON only."""
             model=self.model,
             temperature=self.temperature,
             max_tokens=512,
+            json_mode=True,
         )
         payload = extract_first_json(response.text)
         verdict = str(payload.get("verdict", "kill")).lower()

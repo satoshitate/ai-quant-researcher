@@ -34,6 +34,60 @@ If the hypothesis is ambiguous, make sensible defaults — do not ask questions.
 """
 
 
+SYSTEM_PROMPT_INTRADAY_OHLCV = """You are a Python developer translating intraday hypotheses into code.
+
+You receive a pandas DataFrame `df` with these columns: open, high, low, close, volume.
+The index is a tz-aware DatetimeIndex (US/Eastern), 5-minute bars, regular hours
+9:30-16:00 ET. Multiple days are concatenated end-to-end.
+
+Constraints (non-negotiable):
+1. Output ONE function: `strategy(price_data: pd.DataFrame) -> pd.Series`.
+   Return a Series indexed by `price_data.index`, values in [-1, 1], representing
+   the target position at the close of each bar (will be lagged by the engine).
+2. Imports allowed: numpy as np, pandas as pd, and
+   `from ai_quant_lab.features.library import momentum, rolling_zscore,
+   realized_volatility, range_pct, vwap_deviation, ewma`.
+3. NEVER look at future bars. Compute features via .shift(1), .rolling(...),
+   or .ewm(...). NEVER use .shift(-1) or center=True.
+4. ALWAYS clip the final signal to [-1, 1] with `.clip(-1, 1)`.
+5. Output ONLY the code in a ```python block. No prose.
+
+PITFALLS to avoid (these have crashed prior attempts):
+- DO NOT do `df.index % N` — datetime index doesn't support modulo.
+  For "every Nth bar", use `np.arange(len(df)) % N == 0`.
+- DO NOT return `np.array(...)` — must be `pd.Series(values, index=df.index)`.
+- DO NOT do `pd.Series(some_list).rolling(N)` if `some_list` was built from a
+  groupby-apply that returned mixed types. Convert to a flat float Series first.
+- DO NOT compute features per-day with `df.groupby(df.index.date).apply(...)` —
+  that re-introduces tz issues. Use rolling windows on the whole series; if you
+  need session resets, use `df.index.normalize()` or `df.index.time` masks.
+- Position thresholds should produce reasonable turnover. A signal that flips
+  every bar will be killed by costs. Add hysteresis or hold periods.
+
+GOOD EXAMPLE:
+```python
+import pandas as pd
+import numpy as np
+from ai_quant_lab.features.library import rolling_zscore
+
+def strategy(price_data: pd.DataFrame) -> pd.Series:
+    close = price_data["close"]
+    z = rolling_zscore(close, window=20)
+    # Mean reversion: fade extremes, hold while |z| > 1
+    raw = (-z / 2.0).clip(-1, 1)
+    # Hysteresis: only enter when |z| > 1.5, exit when |z| < 0.5
+    entry = (z.abs() > 1.5).astype(float)
+    holding = entry.replace(0, np.nan).ffill().fillna(0)
+    exit_mask = (z.abs() < 0.5).astype(float)
+    active = holding * (1 - exit_mask.cummax().diff().fillna(0))
+    signal = (raw * active).clip(-1, 1)
+    return signal.fillna(0.0)
+```
+
+If the hypothesis is ambiguous, make sensible defaults — do not ask questions.
+"""
+
+
 SYSTEM_PROMPT_CROSS_SECTIONAL = """You are a Python developer translating quantitative hypotheses into code.
 
 The strategy is CROSS-SECTIONAL: it ranks/scores assets at each bar and goes
@@ -82,16 +136,18 @@ class CodeAgent:
         *,
         model: str | None = None,
         temperature: float = 0.2,
-        mode: str = "single",  # 'single' | 'cross_sectional'
+        mode: str = "single",  # 'single' | 'cross_sectional' | 'intraday_ohlcv'
     ) -> None:
-        if mode not in {"single", "cross_sectional"}:
-            raise ValueError("mode must be 'single' or 'cross_sectional'")
+        if mode not in {"single", "cross_sectional", "intraday_ohlcv"}:
+            raise ValueError("mode must be 'single', 'cross_sectional', or 'intraday_ohlcv'")
         self.model = model
         self.temperature = temperature
         self.mode = mode
-        self._system_prompt = (
-            SYSTEM_PROMPT_CROSS_SECTIONAL if mode == "cross_sectional" else SYSTEM_PROMPT_SINGLE
-        )
+        self._system_prompt = {
+            "single": SYSTEM_PROMPT_SINGLE,
+            "cross_sectional": SYSTEM_PROMPT_CROSS_SECTIONAL,
+            "intraday_ohlcv": SYSTEM_PROMPT_INTRADAY_OHLCV,
+        }[mode]
 
     def render(self, hypothesis: StrategyHypothesis) -> CodeArtifact:
         user_content = f"""Hypothesis: {hypothesis.title}

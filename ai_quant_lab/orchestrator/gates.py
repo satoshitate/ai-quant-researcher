@@ -76,6 +76,18 @@ def evaluate_gates(
             max_correlation=None,
         )
 
+    # Degenerate-strategy guard: catches all-zero positions (LLM bugs) and
+    # near-zero-variance returns that DSR accepts vacuously.
+    cleaned = strategy_returns.dropna()
+    if len(cleaned) < 30 or cleaned.std() < 1e-10 or cleaned.abs().sum() < 1e-8:
+        return GateOutcome(
+            passes=False,
+            rejection_reason="degenerate_returns",
+            critic_verdict=critic_verdict,
+            dsr_result=None,
+            max_correlation=None,
+        )
+
     n_trials = max(memory.n_trials(), 1)
     try:
         dsr = deflated_sharpe(

@@ -106,15 +106,21 @@ def run_strategy(
         return SandboxResult(positions=positions.fillna(0.0), elapsed_seconds=elapsed)
 
     if isinstance(price_data, pd.DataFrame):
-        if not isinstance(positions, pd.DataFrame):
-            raise SandboxError(
-                f"Cross-sectional strategy must return a DataFrame, got {type(positions).__name__}."
-            )
-        if not positions.index.equals(price_data.index):
-            raise SandboxError("Strategy returned a DataFrame with a different index.")
-        if not positions.columns.equals(price_data.columns):
-            raise SandboxError("Strategy returned a DataFrame with different columns.")
-        return SandboxResult(positions=positions.fillna(0.0), elapsed_seconds=elapsed)
+        # DataFrame input may be single-asset OHLCV (returns Series of positions)
+        # OR cross-sectional (returns DataFrame of weights). We accept either.
+        if isinstance(positions, pd.Series):
+            if not positions.index.equals(price_data.index):
+                raise SandboxError("Strategy returned a Series with a different index.")
+            return SandboxResult(positions=positions.fillna(0.0), elapsed_seconds=elapsed)
+        if isinstance(positions, pd.DataFrame):
+            if not positions.index.equals(price_data.index):
+                raise SandboxError("Strategy returned a DataFrame with a different index.")
+            if not positions.columns.equals(price_data.columns):
+                raise SandboxError("Strategy returned a DataFrame with different columns.")
+            return SandboxResult(positions=positions.fillna(0.0), elapsed_seconds=elapsed)
+        raise SandboxError(
+            f"Strategy must return Series or DataFrame, got {type(positions).__name__}."
+        )
 
     raise SandboxError(f"Unsupported price_data type: {expected_type}")
 
@@ -125,14 +131,21 @@ def _validate_imports(source: str) -> None:
     except SyntaxError as exc:
         raise SandboxError(f"Syntax error: {exc}") from exc
 
+    def _allowed(name: str) -> bool:
+        # Allow exact match (e.g. "numpy") or dotted-prefix match for
+        # ai_quant_lab submodules (e.g. "ai_quant_lab.features.library").
+        if name in _ALLOWED_IMPORTS:
+            return True
+        return any(name == m or name.startswith(m + ".") for m in _ALLOWED_IMPORTS)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for name in node.names:
-                if name.name.split(".")[0] not in _ALLOWED_IMPORTS:
+                if not _allowed(name.name):
                     raise SandboxError(f"Disallowed import: {name.name}")
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            if mod.split(".")[0] not in _ALLOWED_IMPORTS:
+            if not _allowed(mod):
                 raise SandboxError(f"Disallowed import from: {mod}")
 
 
@@ -154,6 +167,9 @@ def _safe_builtins() -> dict[str, Any]:
         )
         if hasattr(builtins, name)
     }
+    # Needed for `from X import Y` to work at exec time. The AST validator
+    # already restricts X to the allowlist, so this doesn't widen attack surface.
+    safe["__import__"] = builtins.__import__
     return safe
 
 

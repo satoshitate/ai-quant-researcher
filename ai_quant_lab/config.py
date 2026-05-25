@@ -27,6 +27,28 @@ class Settings(BaseModel):
         default_factory=lambda: _read_env("AI_QUANT_LAB_MODEL", "claude-sonnet-4-6"),
     )
 
+    # ----- Free LLM providers -----
+    llm_provider: str = Field(
+        default_factory=lambda: _read_env("AI_QUANT_LAB_LLM_PROVIDER", "anthropic"),
+        description="anthropic | groq | ollama",
+    )
+    llm_fallback: str | None = Field(
+        default_factory=lambda: os.environ.get("AI_QUANT_LAB_LLM_FALLBACK"),
+        description="If primary fails, try this. e.g. 'ollama'.",
+    )
+    groq_api_key: str | None = Field(
+        default_factory=lambda: os.environ.get("GROQ_API_KEY"),
+    )
+    groq_model: str = Field(
+        default_factory=lambda: _read_env("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    )
+    ollama_url: str = Field(
+        default_factory=lambda: _read_env("OLLAMA_URL", "http://localhost:11434"),
+    )
+    ollama_model: str = Field(
+        default_factory=lambda: _read_env("OLLAMA_MODEL", "qwen2.5-coder:7b"),
+    )
+
     max_llm_calls: int = Field(
         default_factory=lambda: int(_read_env("AI_QUANT_LAB_MAX_LLM_CALLS", "200")),
         ge=1,

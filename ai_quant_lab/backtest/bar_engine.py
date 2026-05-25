@@ -88,6 +88,16 @@ class BarSchedule:
         )
 
     @classmethod
+    def spy_5m(cls) -> "BarSchedule":
+        return cls(interval="5m", market_open=time(9, 30), market_close=time(16, 0),
+                   trading_days_per_year=252, bars_per_trading_day=78)
+
+    @classmethod
+    def spy_1m(cls) -> "BarSchedule":
+        return cls(interval="1m", market_open=time(9, 30), market_close=time(16, 0),
+                   trading_days_per_year=252, bars_per_trading_day=390)
+
+    @classmethod
     def crypto_hourly(cls) -> "BarSchedule":
         return cls(
             interval="1h",

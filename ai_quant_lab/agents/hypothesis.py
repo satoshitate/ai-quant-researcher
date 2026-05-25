@@ -101,6 +101,7 @@ Propose ONE new strategy. Output JSON only, matching the schema."""
             model=self.model,
             temperature=self.temperature,
             max_tokens=1024,
+            json_mode=True,
         )
         payload = extract_first_json(response.text)
         return _payload_to_hypothesis(payload)

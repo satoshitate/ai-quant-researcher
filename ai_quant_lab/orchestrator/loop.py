@@ -54,7 +54,7 @@ class LoopArtifact:
 
 
 def run_research_loop(
-    price_data: pd.Series,
+    price_data: pd.Series | pd.DataFrame,
     config: LoopConfig,
     *,
     memory: ResearchMemory,
@@ -186,7 +186,9 @@ def _run_iteration(
             gate_outcome=None,
         )
 
-    returns = price_data.pct_change().fillna(0.0)
+    # DataFrame (OHLCV) → use close for returns; Series → use as-is.
+    close = price_data["close"] if isinstance(price_data, pd.DataFrame) else price_data
+    returns = close.pct_change().fillna(0.0)
     result = vectorized_backtest(sandbox_result.positions, returns, config=config.backtest_config)
     gate_outcome = evaluate_gates(
         critic_verdict=verdict,

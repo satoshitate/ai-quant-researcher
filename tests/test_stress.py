@@ -315,20 +315,22 @@ def test_sandbox_rejects_dataframe_for_series_input(gbm_price_series):
         run_strategy(src, gbm_price_series)
 
 
-def test_sandbox_rejects_series_for_dataframe_input():
-    """Cross-sectional call must reject a Series return."""
+def test_sandbox_accepts_series_for_dataframe_input():
+    """Single-asset OHLCV strategies pass a DataFrame and return a Series.
+    Sandbox accepts either Series or DataFrame return for DataFrame input."""
     rng = np.random.default_rng(0)
     prices = pd.DataFrame(
-        100 * np.exp(np.cumsum(rng.normal(0, 0.01, (200, 3)), axis=0)),
+        100 * np.exp(np.cumsum(rng.normal(0, 0.01, (200, 5)), axis=0)),
         index=pd.bdate_range("2025-01-01", periods=200),
-        columns=["A", "B", "C"],
+        columns=["open", "high", "low", "close", "volume"],
     )
     src = (
         "def strategy(price_data):\n"
         "    return pd.Series(0.0, index=price_data.index)"
     )
-    with pytest.raises(SandboxError):
-        run_strategy(src, prices)
+    result = run_strategy(src, prices)
+    assert isinstance(result.positions, pd.Series)
+    assert result.positions.index.equals(prices.index)
 
 
 def test_sandbox_rejects_mismatched_columns():
